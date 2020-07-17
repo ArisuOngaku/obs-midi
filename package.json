@@ -1,0 +1,22 @@
+{
+  "name": "obs-midi",
+  "version": "0.1.0",
+  "description": "Control OBS with any midi controller.",
+  "main": "dist/main.js",
+  "author": "Alice Gaudon <alice@gaudon.pro>",
+  "license": "MIT",
+  "scripts": {
+    "dev": "yarn tsc && node ."
+  },
+  "devDependencies": {
+    "@types/node": "^14.0.23",
+    "typescript": "^3.9.7"
+  },
+  "dependencies": {
+    "@types/config": "^0.0.36",
+    "config": "^3.3.1",
+    "jzz": "^1.0.8",
+    "obs-websocket-js": "^4.0.1",
+    "ts-node": "^8.10.2"
+  }
+}
