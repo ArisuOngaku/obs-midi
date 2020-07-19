@@ -6,12 +6,11 @@ import ObsSourceKnob from "./obs/ObsSourceKnob";
 import config from "config";
 
 (async () => {
-    const app = new App();
+    const app = new App(async () => {
+        await configureApp(app);
+    });
+    await app.init();
     await app.start();
-
-    await configureApp(app);
-
-    await app.reload();
 })().catch(console.error);
 
 async function configureApp(app: App): Promise<void> {

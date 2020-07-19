@@ -12,12 +12,16 @@ export default class WMSMusicWidget {
     private activeSocket?: WebSocket;
     private checkInterval?: NodeJS.Timeout;
     private lastSentData?: string;
+    private started: boolean = false;
 
     public constructor() {
     }
 
 
     public async start(): Promise<void> {
+        if (this.started) return;
+        this.started = true;
+
         if (!this.token || this.token === 'default') {
             console.warn('WMS music widget not started due to missing token.');
             return;

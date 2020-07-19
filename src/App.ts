@@ -6,6 +6,7 @@ import ObsWebSocket from "obs-websocket-js";
 import LedState from "./LedState";
 import ObsStateTracker from "./obs/ObsStateTracker";
 import WMSMusicWidget from "./wms/WMSMusicWidget";
+import {sleep} from "./Utils";
 
 export default class App {
     private obs: ObsWebSocket = new ObsWebSocket();
@@ -14,39 +15,58 @@ export default class App {
     private midiIn: any;
     private pendingStates: LedState[] = [];
     private readonly wmsMusicWidget: WMSMusicWidget = new WMSMusicWidget();
+    private readonly configCallback: () => Promise<void>;
+    private animationHandler?: NodeJS.Timeout;
+    private animating: boolean = false;
+    private animationStopCallback?: () => void;
+    private animationCounter: number = 0;
 
-    public constructor() {
-
+    public constructor(configCallback: () => Promise<void>) {
+        this.configCallback = configCallback;
     }
 
     public registerControl(control: MidiControl) {
         this.controls.push(control);
     }
 
+    public async init(): Promise<void> {
+        await this.initialRainbowAnimation();
+    }
+
     public async start(): Promise<void> {
+        await this.enableInControl();
+
+        this.obs = new ObsWebSocket();
         await this.initObs();
+
+        this.obsStateTracker = new ObsStateTracker(this.obs);
         await this.obsStateTracker.init(this);
-        await this.initMidi();
+
+        await this.configCallback();
+
+        await this.initMidiIn();
         await this.wmsMusicWidget.start();
     }
 
+    public async reload(): Promise<void> {
+        await this.stop();
+        await this.start();
+    }
+
     public async stop(): Promise<void> {
-        await this.midiIn.close();
+        if (this.midiIn) {
+            await this.midiIn.close();
+            this.midiIn = undefined;
+        }
         await this.obs.removeAllListeners();
         await this.obs.disconnect();
     }
 
-    public async reload(): Promise<void> {
-        await this.obs.removeAllListeners();
-        await this.midiIn.close();
-
-        this.obsStateTracker = new ObsStateTracker(this.obs);
-        await this.obsStateTracker.init(this);
-        await this.initMidi();
-    }
-
     private async initObs(): Promise<void> {
-        const connectionRetryListener = async () => {
+        let retried = false;
+        this.obs.once('ConnectionClosed', async () => {
+            if (retried) return;
+            retried = true;
             try {
                 console.error('Connection closed or authentication failure. Retrying in 2s...');
                 await new Promise(resolve => {
@@ -54,13 +74,11 @@ export default class App {
                         resolve();
                     }, 2000);
                 });
-                await this.connectObs();
+                await this.reload();
             } catch (e) {
                 console.error(e);
             }
-        };
-        this.obs.on('ConnectionClosed', connectionRetryListener);
-        this.obs.on('AuthenticationFailure', connectionRetryListener);
+        });
 
         await this.connectObs();
     }
@@ -72,7 +90,7 @@ export default class App {
         });
     }
 
-    private async initMidi(): Promise<void> {
+    private async initMidiIn(): Promise<void> {
         this.midiIn = jzz()
             .openMidiIn(config.get<string>('midi.controller'))
             .or('Cannot open MIDI In port!')
@@ -88,11 +106,13 @@ export default class App {
             });
         await this.midiIn;
 
-        await this.enableInControl();
+        await this.stopAnimation();
 
+        // Init led controls
         for (const control of this.controls) {
             await control.init(this);
         }
+        await this.updateControls();
     }
 
     private async handleMidiMessage(msg: any) {
@@ -120,22 +140,77 @@ export default class App {
         // Enable "in control"
         this.led(0, 10, 0, 1);
         this.led(0, 12, 0, 1);
-
         await this.tick();
 
+        await this.loadingMidiAnimation();
+    }
+
+    private async initialRainbowAnimation(): Promise<void> {
         // Led rainbow
         for (let n = 96; n < 105; n++) {
-            this.led(0, n, n % 4, (n + 2) % 4, 2000);
-            this.led(0, n + 16, n % 4, (n + 2) % 4, 2000);
+            this.led(0, n, n % 4, (n + 2) % 4, 750);
+            this.led(0, n + 16, n % 4, (n + 2) % 4, 750);
             await this.tick();
+        }
+        await sleep(1000);
+    }
+
+    private async loadingMidiAnimation(): Promise<void> {
+        await this.animate(async () => {
+            let i = this.animationCounter % 18;
+            let n = 96 + i + (i >= 9 ? 7 : 0);
+            this.led(0, n, 1, 3, 250);
+            await this.tick();
+            await sleep(250);
+        }, 0);
+    }
+
+    private async animate(animation: () => Promise<void>, ms: number): Promise<void> {
+        await this.stopAnimation();
+
+        const run = (first: boolean) => {
+            this.animating = true;
+            this.animationHandler = setTimeout(async () => {
+                try {
+                    await animation();
+                    this.animationCounter++;
+                    if (typeof this.animationHandler !== 'undefined') {
+                        run(false);
+                    } else {
+                        this.signalAnimationEnd();
+                    }
+                } catch (e) {
+                    console.error(e);
+                    this.stopAnimation()
+                        .catch(console.error);
+                    this.signalAnimationEnd();
+                }
+            }, first ? 0 : ms);
+        };
+        run(true);
+    }
+
+    private signalAnimationEnd() {
+        this.animating = false;
+        if (this.animationStopCallback) {
+            this.animationStopCallback();
+            this.animationStopCallback = undefined;
+        }
+    }
+
+    private async stopAnimation(): Promise<void> {
+        if (typeof this.animationHandler !== 'undefined') {
+            clearTimeout(this.animationHandler);
+            this.animationHandler = undefined;
         }
 
         await new Promise(resolve => {
-            setTimeout(resolve, 2000);
+            if (this.animating) {
+                this.animationStopCallback = resolve;
+            } else {
+                resolve();
+            }
         });
-
-        // Init led controls
-        await this.updateControls();
     }
 
     public async updateControls(): Promise<void> {
