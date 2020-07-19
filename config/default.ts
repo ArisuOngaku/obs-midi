@@ -10,5 +10,11 @@ export default {
     midi: {
         controller: 'Launchkey Mini MIDI 2',
         output: 'Launchkey Mini MIDI 2',
-    }
+    },
+    wms: {
+        music_widget: {
+            ws: 'wss://watch-my.stream/widgets/music/stream',
+            token: 'default',
+        },
+    },
 };

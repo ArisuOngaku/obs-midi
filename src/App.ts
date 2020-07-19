@@ -5,6 +5,7 @@ import jzz from "jzz";
 import ObsWebSocket from "obs-websocket-js";
 import LedState from "./LedState";
 import ObsStateTracker from "./obs/ObsStateTracker";
+import WMSMusicWidget from "./wms/WMSMusicWidget";
 
 export default class App {
     private obs: ObsWebSocket = new ObsWebSocket();
@@ -12,6 +13,7 @@ export default class App {
     private controls: MidiControl[] = [];
     private midiIn: any;
     private pendingStates: LedState[] = [];
+    private readonly wmsMusicWidget: WMSMusicWidget = new WMSMusicWidget();
 
     public constructor() {
 
@@ -25,6 +27,7 @@ export default class App {
         await this.initObs();
         await this.obsStateTracker.init(this);
         await this.initMidi();
+        await this.wmsMusicWidget.start();
     }
 
     public async stop(): Promise<void> {
