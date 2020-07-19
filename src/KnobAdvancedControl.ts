@@ -1,14 +1,14 @@
 import MidiControl, {EventType} from "./MidiControl";
-import Action from "./Action";
+import App from "./App";
 
-export default class KnobAdvancedControl extends MidiControl {
-    public constructor(id: number, action: Action) {
-        super(id, action);
+export default abstract class KnobAdvancedControl extends MidiControl {
+    protected constructor(id: number) {
+        super(id);
     }
 
-    public async handleEvent(eventType: number, velocity: number): Promise<boolean> {
+    public async handleEvent(app: App, eventType: number, velocity: number): Promise<boolean> {
         if (eventType === EventType.ADVANCED_CONTROL) {
-            await this.performAction(velocity);
+            await this.executeAction(app, velocity);
             return true;
         }
 
@@ -16,8 +16,12 @@ export default class KnobAdvancedControl extends MidiControl {
     }
 }
 
+export function toRawVolume(velocity: number) {
+    return velocity / 127;
+}
+
 export function toVolume(velocity: number) {
-    return dbToLinear(linearToDef(velocity / 127));
+    return dbToLinear(linearToDef(toRawVolume(velocity)));
 }
 
 function dbToLinear(x: number) {

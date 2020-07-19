@@ -3,11 +3,15 @@ import console from "console";
 import MidiControl from "./MidiControl";
 import jzz from "jzz";
 import ObsWebSocket from "obs-websocket-js";
+import LedState from "./LedState";
+import ObsStateTracker from "./obs/ObsStateTracker";
 
 export default class App {
-    private readonly obs: ObsWebSocket = new ObsWebSocket();
-    private readonly controls: MidiControl[] = [];
-    private jzz: any;
+    private obs: ObsWebSocket = new ObsWebSocket();
+    private obsStateTracker: ObsStateTracker = new ObsStateTracker(this.obs);
+    private controls: MidiControl[] = [];
+    private midiIn: any;
+    private pendingStates: LedState[] = [];
 
     public constructor() {
 
@@ -19,11 +23,23 @@ export default class App {
 
     public async start(): Promise<void> {
         await this.initObs();
+        await this.obsStateTracker.init(this);
         await this.initMidi();
     }
 
     public async stop(): Promise<void> {
-        await this.jzz.stop();
+        await this.midiIn.close();
+        await this.obs.removeAllListeners();
+        await this.obs.disconnect();
+    }
+
+    public async reload(): Promise<void> {
+        await this.obs.removeAllListeners();
+        await this.midiIn.close();
+
+        this.obsStateTracker = new ObsStateTracker(this.obs);
+        await this.obsStateTracker.init(this);
+        await this.initMidi();
     }
 
     private async initObs(): Promise<void> {
@@ -54,7 +70,7 @@ export default class App {
     }
 
     private async initMidi(): Promise<void> {
-        this.jzz = await jzz()
+        this.midiIn = jzz()
             .openMidiIn(config.get<string>('midi.controller'))
             .or('Cannot open MIDI In port!')
             .and(function (this: any) {
@@ -67,6 +83,13 @@ export default class App {
                     console.error(e);
                 }
             });
+        await this.midiIn;
+
+        await this.enableInControl();
+
+        for (const control of this.controls) {
+            await control.init(this);
+        }
     }
 
     private async handleMidiMessage(msg: any) {
@@ -76,7 +99,7 @@ export default class App {
         console.log('Midi:', eventType, id, velocity);
 
         for (const control of this.controls) {
-            if (control.id === id && await control.handleEvent(eventType, velocity)) {
+            if (control.id === id && await control.handleEvent(this, eventType, velocity)) {
                 return;
             }
         }
@@ -85,4 +108,75 @@ export default class App {
     public getObs(): ObsWebSocket {
         return this.obs;
     }
+
+    public getObsStateTracker(): ObsStateTracker {
+        return this.obsStateTracker;
+    }
+
+    private async enableInControl(): Promise<void> {
+        // Enable "in control"
+        this.led(0, 10, 0, 1);
+        this.led(0, 12, 0, 1);
+
+        await this.tick();
+
+        // Led rainbow
+        for (let n = 96; n < 105; n++) {
+            this.led(0, n, n % 4, (n + 2) % 4, 2000);
+            this.led(0, n + 16, n % 4, (n + 2) % 4, 2000);
+            await this.tick();
+        }
+
+        await new Promise(resolve => {
+            setTimeout(resolve, 2000);
+        });
+
+        // Init led controls
+        await this.updateControls();
+    }
+
+    public async updateControls(): Promise<void> {
+        for (const control of this.controls) {
+            await control.update(this);
+        }
+        await this.tick();
+    }
+
+    public led(
+        channel: number,
+        note: number,
+        green: number,
+        red: number,
+        duration: number = 0
+    ): void {
+        this.pendingStates.push(new LedState(
+            channel,
+            note,
+            green,
+            red,
+            duration
+        ));
+    }
+
+    public async tick(): Promise<void> {
+        let action = jzz().openMidiOut(config.get<string>('midi.output'))
+            .or('Cannot open MIDI Out port!');
+
+        for (const state of this.pendingStates) {
+            let color = (state.green << 4) | state.red;
+
+            // console.log('Out', state.channel, state.note, color, state.duration);
+            // console.log('>', state.green, state.red);
+
+            if (state.duration > 0) {
+                action.note(state.channel, state.note, color, state.duration);
+            } else {
+                action.noteOn(state.channel, state.note, color);
+            }
+        }
+        this.pendingStates = [];
+
+        await action;
+    }
 }
+

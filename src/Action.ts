@@ -1,3 +1,5 @@
-export default abstract class Action {
-    public abstract async execute(velocity: number): Promise<void>;
+import App from "./App";
+
+export default interface Action {
+    performAction(app: App, velocity: number): Promise<void>;
 }

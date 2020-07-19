@@ -1,44 +1,32 @@
 import * as console from "console";
 import App from "./App";
-import ButtonControl from "./ButtonControl";
-import Action from "./Action";
-import KnobAdvancedControl, {toVolume} from "./KnobAdvancedControl";
+import ObsSceneButton from "./obs/ObsSceneButton";
+import ObsSourceToggleMuteButton from "./obs/ObsSourceToggleMuteButton";
+import ObsSourceKnob from "./obs/ObsSourceKnob";
+import config from "config";
 
 (async () => {
     const app = new App();
-
-    app.registerControl(new ButtonControl(50, new class extends Action {
-        async execute(velocity: number): Promise<void> {
-            await app.getObs().send('SetCurrentScene', {'scene-name': 'Scene 2'});
-        }
-    }));
-    app.registerControl(new ButtonControl(51, new class extends Action {
-        async execute(velocity: number): Promise<void> {
-            await app.getObs().send('SetCurrentScene', {'scene-name': 'BareMainScreen'});
-        }
-    }));
-
-    app.registerControl(new ButtonControl(40, new class extends Action {
-        async execute(velocity: number): Promise<void> {
-            await app.getObs().send('ToggleMute', {source: 'Desktop Audio'});
-        }
-    }));
-
-    app.registerControl(new ButtonControl(41, new class extends Action {
-        async execute(velocity: number): Promise<void> {
-            await app.getObs().send('ToggleMute', {source: 'Mic/Aux'});
-        }
-    }));
-    app.registerControl(new KnobAdvancedControl(21, new class extends Action {
-        async execute(velocity: number): Promise<void> {
-            await app.getObs().send('SetVolume', {source: 'Desktop Audio', volume: toVolume(velocity)});
-        }
-    }));
-    app.registerControl(new KnobAdvancedControl(22, new class extends Action {
-        async execute(velocity: number): Promise<void> {
-            await app.getObs().send('SetVolume', {source: 'Mic/Aux', volume: toVolume(velocity)});
-        }
-    }));
-
     await app.start();
+
+    await configureApp(app);
+
+    await app.reload();
 })().catch(console.error);
+
+async function configureApp(app: App): Promise<void> {
+    let obsStateTracker = app.getObsStateTracker();
+
+    // Scenes
+    const scenes = obsStateTracker.getSceneList();
+    for (let i = 0; i < scenes.length && i < 8; i++) {
+        app.registerControl(new ObsSceneButton(112 + i, scenes[i]));
+    }
+
+    // Sources
+    const sources = config.get<string[]>('obs.audio_sources');
+    for (let i = 0; i < sources.length && i < 8; i++) {
+        app.registerControl(new ObsSourceToggleMuteButton(96 + i, sources[i]));
+        app.registerControl(new ObsSourceKnob(21 + i, sources[i]))
+    }
+}
